@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+# encoding: utf-8
 # A command line tool to download the current Premier League Soccer data
 # Tested in Python 3
 #
@@ -14,8 +14,6 @@
 #
 # For help, execute
 # ./collect_epl.py --help
-
-
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -93,15 +91,21 @@ class SoccerData(object):
         # Note: html5lib deals better with broken html than lxml
 
         name_list = []
-
-        for td in soup.findAll('td', { 'class' : "tabName" }):
-            name = td.text.split('Statistics')[-1].strip()
+        rows = soup.findAll("div", { "class" : "stats-row" })
+        for row in rows:
+            name = row.p.text.strip()
             if name:
                 name_list.append(name)
-                res = [i.text for i in td.next_siblings if isinstance(i, bs4.element.Tag)]
-                position, team, vfm, value, points = res
+                res = [el.text for el in row if isinstance(el, bs4.element.Tag)]
+                name, position, team, value, points, vfm = res
                 value = value.strip('m')
-                player_dict[name] = [name, position, team, vfm, value, points]
+                value = value.strip('£')
+                value = float(value)
+                points = int(points)
+                vfm = points/value
+                player_dict[name] = [name, position, team, value, points, vfm]
+        print('Found: %s' % len(name_list))
+        print(name_list[-1])
 
         df = pd.DataFrame.from_dict(player_dict, orient='index')
         df.columns = ['name', 'position', 'team', 'vfm', 'value', 'pts']
@@ -203,7 +207,8 @@ class SoccerData(object):
                     'W_hm','D_hm','L_hm','F_hm','A_hm', 'W_aw',
                     'D_aw','L_aw','F_aw','A_aw','GD','PTS']
         df.columns = cols
-        df = df.sort('Pos')
+        # Updated for newer instance of Pandas.
+        df = df.sort_values(by='Pos')
         df['team'] = df.index
         df = df[['team']+cols] # reorder columns
 
@@ -383,14 +388,14 @@ class SoccerData(object):
         url = 'https://fantasyfootball.telegraph.co.uk/premierleague/players/'
 
         if print_out:
-            print('Getting player form data from %s ...' % url)
+            print('Getting player form data from {} ...'.format(url))
 
         try:
             r = requests.get(url, timeout=10)
             r.raise_for_status()
 
         except requests.exceptions.ReadTimeout:
-            print('\nServer not available. Skipped %s\n' % url)
+            print('\nServer not available. Skipped {}\n'.format(url))
             return
 
         soup = BeautifulSoup(r.text, 'html5lib')
@@ -411,17 +416,38 @@ class SoccerData(object):
         # make name column
         df['name'] = df.index
 
-        # assign column names and reorder columns
-        df.columns = ['team', 'salary', 'pts/salary', 'week_pts', 'total_pts', 'name']
-        df = df[['name', 'team', 'salary', 'pts/salary', 'week_pts', 'total_pts']]
+        # # assign column names and reorder columns
+        # # Updated for new fields.
+        # df.columns = ['team', 'salary', 'pts/salary', 'week_pts', 'total_pts', 'name']
+        df.columns = ["team",
+                      "salary",
+                      "starting_eleven", 
+                      "substitutions", 
+                      "goals", 
+                      "penalties_missed", 
+                      "key_contributions", 
+                      "clean_sheet_full", 
+                      "clean_sheet_partial", 
+                      "goal_conceded", 
+                      "penalty_saved", 
+                      "red_card", 
+                      "yellow_card", 
+                      "own_goal", 
+                      "vfm", 
+                      "total_pts",
+                      "name"]
+        df = df[['name', 'team', 'salary', 'vfm', 'total_pts']]
 
-        # parse data into the right format
+        # # parse data into the right format
         df['salary'] = df['salary'].apply(lambda x: x.strip('£').strip(' m'))
-        df[['salary', 'pts/salary']] = df[['salary', 'pts/salary']].astype(float)
-        df[['week_pts', 'total_pts']] = df[['week_pts', 'total_pts']].astype(int)
+        df[['salary', 'vfm']] = df[['salary', 'vfm']].astype(float)
+        # Week points not available as of 7/21.
+        # df[['week_pts', 'total_pts']] = df[['week_pts', 'total_pts']].astype(int)
+        print(df.shape)
+        print(df.tail())
 
 
-        url = 'https://fantasyfootball.telegraph.co.uk/premierleague/formguide/'
+        url = """https://fantasyfootball.telegraph.co.uk/premierleague/formguide/"""
         r  = requests.get(url)
         soup = BeautifulSoup(r.text, 'html5lib')
         # Note: html5lib deals better with broken html than lxml
